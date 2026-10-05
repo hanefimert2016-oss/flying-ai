@@ -1,0 +1,50 @@
+name: Render Neon Pulse
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/render-neon.yml"
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Checkout animation source
+        run: |
+          git clone --depth 1 https://github.com/hanefimert2016-oss/Sunucum.git source
+          cd source/remotion-video
+          npm install --no-audit --no-fund
+          npx tsc --noEmit
+
+      - name: Generate soundtrack
+        run: |
+          cd source/remotion-video
+          mkdir -p public out
+          ffmpeg -hide_banner -loglevel error -y             -f lavfi -i "sine=frequency=55:duration=20:sample_rate=48000"             -f lavfi -i "sine=frequency=110:duration=20:sample_rate=48000"             -f lavfi -i "sine=frequency=440:duration=20:sample_rate=48000"             -f lavfi -i "anoisesrc=color=pink:duration=20:sample_rate=48000"             -filter_complex "[0:a]volume=0.20,tremolo=f=2:d=0.55[a0];[1:a]volume=0.07,tremolo=f=0.5:d=0.25[a1];[2:a]volume=0.025,highpass=f=250,lowpass=f=1800,tremolo=f=4:d=0.7[a2];[3:a]volume=0.014,highpass=f=2500[a3];[a0][a1][a2][a3]amix=inputs=4:normalize=0,afade=t=in:st=0:d=1.2,afade=t=out:st=18:d=2,alimiter=limit=0.85[a]"             -map "[a]" -c:a pcm_s16le public/score.wav
+
+      - name: Render
+        run: |
+          cd source/remotion-video
+          npx remotion browser ensure
+          npx remotion render src/index.ts Main out/neon-pulse.mp4 --codec=h264 --crf=18 --concurrency=2
+          npx remotion still src/index.ts Main out/neon-pulse-poster.png --frame=420
+
+      - name: Validate
+        run: |
+          cd source/remotion-video
+          ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate -show_entries format=duration,size -of json out/neon-pulse.mp4
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: neon-pulse-animation
+          path: |
+            source/remotion-video/out/neon-pulse.mp4
+            source/remotion-video/out/neon-pulse-poster.png
+          compression-level: 0
